@@ -6,9 +6,13 @@
 @inject ISnackbar Snackbar
 @inject IMediator Mediator
 @inject IEntityLocker EntityLocker;
+@inject ILogger<ClassicPlayoutEditor> Logger
 
 <MudForm Style="max-height: 100%">
     <MudPaper Square="true" Style="display: flex; height: 64px; min-height: 64px; width: 100%; z-index: 100; align-items: center">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ml-6" OnClick="@(_ => SaveDefaultDeco())" StartIcon="@Icons.Material.Filled.Save">
+            Save Default Deco
+        </MudButton>
     </MudPaper>
     <div class="d-flex flex-column" style="height: 100vh; overflow-x: auto">
         <MudContainer MaxWidth="MaxWidth.ExtraLarge" Class="pt-8">
@@ -31,6 +35,43 @@
                     </MudButton>
                 }
             </MudStack>
+            <MudText Typo="Typo.h5" Class="mt-10 mb-2">Default Deco</MudText>
+            <MudDivider Class="mb-6"/>
+            <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
+                <div class="d-flex">
+                    <MudText>Enable Default Deco</MudText>
+                </div>
+                <MudCheckBox @bind-Value="_enableDefaultDeco" Dense="true"/>
+            </MudStack>
+            @if (_enableDefaultDeco)
+            {
+                <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
+                    <div class="d-flex">
+                        <MudText>Deco Group</MudText>
+                    </div>
+                    <MudSelect T="DecoGroupViewModel"
+                               Value="@_selectedDefaultDecoGroup"
+                               ValueChanged="@OnDefaultDecoGroupChanged">
+                        @foreach (DecoGroupViewModel decoGroup in _decoGroups)
+                        {
+                            <MudSelectItem Value="@decoGroup">@decoGroup.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudStack>
+                <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
+                    <div class="d-flex">
+                        <MudText>Deco</MudText>
+                    </div>
+                    <MudSelect @bind-Value="_defaultDeco"
+                               For="@(() => _defaultDeco)"
+                               ToStringFunc="@(d => d?.Name)">
+                        @foreach (DecoViewModel deco in _decos)
+                        {
+                            <MudSelectItem Value="@deco">@deco.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudStack>
+            }
             <MudText Typo="Typo.h5" Class="mt-10 mb-2">Maintenance</MudText>
             <MudDivider Class="mb-6"/>
             <MudStack Row="true" Breakpoint="Breakpoint.SmAndDown" Class="form-field-stack gap-md-8 mb-5">
@@ -52,7 +93,13 @@
     [Parameter]
     public int Id { get; set; }
 
+    private readonly List<DecoGroupViewModel> _decoGroups = [];
+    private readonly List<DecoViewModel> _decos = [];
+
     private string _channelName;
+    private bool _enableDefaultDeco;
+    private DecoGroupViewModel _selectedDefaultDecoGroup;
+    private DecoViewModel _defaultDeco;
 
     public void Dispose()
     {
@@ -81,6 +128,18 @@
                 _channelName = channel.Name;
                 _playoutMode = channel.PlayoutMode;
             }
+
+            _decoGroups.Clear();
+            _decoGroups.AddRange(await Mediator.Send(new GetAllDecoGroups(), token));
+
+            Option<DecoViewModel> maybeDefaultDeco = await Mediator.Send(new GetDecoByPlayoutId(Id), token);
+            foreach (DecoViewModel defaultDeco in maybeDefaultDeco)
+            {
+                _enableDefaultDeco = true;
+                _selectedDefaultDecoGroup = _decoGroups.SingleOrDefault(dg => dg.Id == defaultDeco.DecoGroupId);
+                await UpdateDefaultDecoGroupItems(_selectedDefaultDecoGroup);
+                _defaultDeco = defaultDeco;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -88,10 +147,37 @@
         }
     }
 
+    private async Task UpdateDefaultDecoGroupItems(DecoGroupViewModel decoGroup)
+    {
+        _selectedDefaultDecoGroup = decoGroup;
+
+        _decos.Clear();
+        _decos.AddRange(await Mediator.Send(new GetDecosByDecoGroupId(_selectedDefaultDecoGroup.Id), _cts.Token));
+    }
+
+    private Task OnDefaultDecoGroupChanged(DecoGroupViewModel group)
+    {
+        _defaultDeco = null;
+        return UpdateDefaultDecoGroupItems(group);
+    }
+
     private async Task EraseItemsAndHistory()
     {
         await Mediator.Send(new ErasePlayoutHistory(Id), _cts.Token);
         Snackbar.Add("Erased playout items and history", Severity.Info);
+    }
+
+    private async Task SaveDefaultDeco()
+    {
+        int? decoId = _enableDefaultDeco ? _defaultDeco?.Id : null;
+        Option<BaseError> result = await Mediator.Send(new UpdateDefaultDeco(Id, decoId), _cts.Token);
+        result.Match(
+            error =>
+            {
+                Snackbar.Add($"Unexpected error saving default deco: {error.Value}", Severity.Error);
+                Logger.LogError("Unexpected error saving default deco: {Error}", error.Value);
+            },
+            () => { Snackbar.Add($"Saved default deco for playout {_channelName}", Severity.Success); });
     }
 
 }
