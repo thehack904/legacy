@@ -1,3 +1,4 @@
+using System.Net;
 using ErsatzTV.Application.Scheduling;
 using ErsatzTV.Core.Api.Decos;
 using MediatR;
@@ -10,8 +11,13 @@ namespace ErsatzTV.Controllers.Api;
 public class DecoController(IMediator mediator) : ControllerBase
 {
     [HttpGet("/api/deco-groups", Name = "GetDecoGroups")]
-    public async Task<List<DecoGroupResponseModel>> GetDecoGroups(CancellationToken cancellationToken)
+    public async Task<ActionResult<List<DecoGroupResponseModel>>> GetDecoGroups(CancellationToken cancellationToken)
     {
+        if (!IsLoopbackRequest())
+        {
+            return Forbid();
+        }
+
         List<DecoGroupViewModel> groups =
             await mediator.Send(new GetAllDecoGroups(), cancellationToken);
 
@@ -21,8 +27,13 @@ public class DecoController(IMediator mediator) : ControllerBase
     }
 
     [HttpGet("/api/deco-groups/{id:int}/decos", Name = "GetDecos")]
-    public async Task<List<DecoResponseModel>> GetDecos(int id, CancellationToken cancellationToken)
+    public async Task<ActionResult<List<DecoResponseModel>>> GetDecos(int id, CancellationToken cancellationToken)
     {
+        if (!IsLoopbackRequest())
+        {
+            return Forbid();
+        }
+
         List<DecoViewModel> decos =
             await mediator.Send(new GetDecosByDecoGroupId(id), cancellationToken);
 
@@ -34,6 +45,11 @@ public class DecoController(IMediator mediator) : ControllerBase
     [HttpGet("/api/playouts/{id:int}/default-deco", Name = "GetDefaultDeco")]
     public async Task<IActionResult> GetDefaultDeco(int id, CancellationToken cancellationToken)
     {
+        if (!IsLoopbackRequest())
+        {
+            return Forbid();
+        }
+
         var maybeDeco = await mediator.Send(new GetDecoByPlayoutId(id), cancellationToken);
 
         foreach (DecoViewModel deco in maybeDeco)
@@ -47,6 +63,11 @@ public class DecoController(IMediator mediator) : ControllerBase
     [HttpPut("/api/playouts/{id:int}/default-deco/{decoId:int}", Name = "SetDefaultDeco")]
     public async Task<IActionResult> SetDefaultDeco(int id, int decoId, CancellationToken cancellationToken)
     {
+        if (!IsLoopbackRequest())
+        {
+            return Forbid();
+        }
+
         var result = await mediator.Send(new UpdateDefaultDeco(id, decoId), cancellationToken);
 
         return result.Match<IActionResult>(
@@ -57,10 +78,21 @@ public class DecoController(IMediator mediator) : ControllerBase
     [HttpDelete("/api/playouts/{id:int}/default-deco", Name = "ClearDefaultDeco")]
     public async Task<IActionResult> ClearDefaultDeco(int id, CancellationToken cancellationToken)
     {
+        if (!IsLoopbackRequest())
+        {
+            return Forbid();
+        }
+
         var result = await mediator.Send(new UpdateDefaultDeco(id, null), cancellationToken);
 
         return result.Match<IActionResult>(
             error => BadRequest(error.Value),
             Ok);
+    }
+
+    private bool IsLoopbackRequest()
+    {
+        IPAddress? remoteIpAddress = HttpContext.Connection.RemoteIpAddress;
+        return remoteIpAddress is not null && IPAddress.IsLoopback(remoteIpAddress);
     }
 }
